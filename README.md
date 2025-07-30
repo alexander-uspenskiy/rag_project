@@ -1,3 +1,9 @@
+---
+title: rag_project
+app_file: main.py
+sdk: gradio
+sdk_version: 5.21.0
+---
 System Architecture Overview
 
 The implementation consists of a SimpleQASystem class that orchestrates two main components:

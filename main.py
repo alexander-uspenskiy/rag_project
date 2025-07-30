@@ -1,3 +1,4 @@
+import gradio as gr
 import os
 # Set tokenizers parallelism before importing libraries
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -8,6 +9,7 @@ from typing import List, Dict
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
+
 
 class SimpleQASystem:
     def __init__(self):
@@ -20,7 +22,7 @@ class SimpleQASystem:
 
             # Move model to CPU explicitly to avoid memory issues
             self.device = "cpu"
-            self.model = self.model.to(self.device)
+            self.model = self.model.to(self.device)  # type: ignore
 
             # Initialize storage
             self.answers = []
@@ -36,23 +38,15 @@ class SimpleQASystem:
     def prepare_dataset(self, data: List[Dict[str, str]]):
         """Prepare the dataset by storing answers and their embeddings"""
         try:
-            # Store answers
             self.answers = [item['answer'] for item in data]
-
-            # Encode answers using SentenceTransformer
-            self.answer_embeddings = []
-            for answer in self.answers:
-                embedding = self.encoder.encode(answer, convert_to_tensor=True)
-                self.answer_embeddings.append(embedding)
-
-            print(f"Prepared {len(self.answers)} answers")
-
+            self.answer_embeddings = [self.encoder.encode(answer, convert_to_tensor=True) for answer in self.answers]
+            print("Dataset prepared successfully")
         except Exception as e:
             print(f"Dataset preparation error: {e}")
             raise
 
     def clean_answer(self, answer: str) -> str:
-        """Clean up generated answer by removing duplicates and extra whitespace"""
+        """Clean the generated answer"""
         words = answer.split()
         cleaned_words = []
         for i, word in enumerate(words):
@@ -118,46 +112,34 @@ class SimpleQASystem:
             return cleaned_answer
 
         except Exception as e:
-            print(f"Error generating answer: {e}")
-            return f"Error: {str(e)}"
+            print(f"Error in get_answer: {e}")
+            return str(e)
 
+# Create an instance of the QA system
+qa_system = SimpleQASystem()
 
-def main():
-    """Main function with sample usage"""
-    try:
-        # Sample data
-        data = [
-            {"question": "What is the capital of France?", "answer": "The capital of France is Paris."},
-            {"question": "What is the largest planet?", "answer": "The largest planet is Jupiter."},
-            {"question": "Who wrote '1984'?", "answer": "George Orwell wrote '1984'."},
-            {"question": "When EPAM was established?", "answer": "EPAM was established in 1993'."}
-        ]
+# Prepare the dataset (example data)
+data = [
+    {"answer": "The capital of France is Paris."},
+    {"answer": "The largest planet in our solar system is Jupiter."},
+    {"answer": "The chemical symbol for water is H2O."},
+    {"answer": "EPAM established in 1993."},
+    {"answer": "EPAM CEO is Arkadiy Dobkin"}
 
-        # Initialize system
-        print("Initializing QA system...")
-        qa_system = SimpleQASystem()
+]
+qa_system.prepare_dataset(data)
 
-        # Prepare dataset
-        print("Preparing dataset...")
-        qa_system.prepare_dataset(data)
+# Define the Gradio interface
+def answer_question(question):
+    return qa_system.get_answer(question)
 
-        # Start interactive Q&A session
-        while True:
-            # Prompt the user for a question
-            test_question = input("\nPlease enter your question (or 'exit' to quit): ")
+iface = gr.Interface(
+    fn=answer_question,
+    inputs="text",
+    outputs="text",
+    title="RAG Demo, Alex Uspenskiy 2025",
+    description="Ask a question and get an answer based on the provided dataset."
+)
 
-            if test_question.lower() == 'exit':
-                print("Exiting the program.")
-                break
-
-            # Get and print the answer
-            print(f"\nQuestion: {test_question}")
-            answer = qa_system.get_answer(test_question)
-            print(f"Answer: {answer}")
-
-    except Exception as e:
-        print(f"Error in main: {e}")
-
-
-if __name__ == "__main__":
-    main()
+# Launch the interface
+iface.launch(share=True)
