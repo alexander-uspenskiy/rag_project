@@ -19,6 +19,8 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.gradio/flagged
+.gradio/
 
 # Virtual Environment
 venv/

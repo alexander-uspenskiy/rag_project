@@ -3,12 +3,25 @@ import os
 # Set tokenizers parallelism before importing libraries
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+from duckduckgo_search import DDGS
+import textwrap
 
 from transformers import T5Tokenizer, T5ForConditionalGeneration
 from typing import List, Dict
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
+
+
+def search_web(query, num_results=3):
+    with DDGS() as ddgs:
+        results = ddgs.text(query, max_results=num_results)
+        return [r['body'] for r in results]
+
+def get_context_from_web(query):
+    snippets = search_web(query)
+    context = " ".join(snippets)
+    return textwrap.fill(context, width=120)
 
 
 class SimpleQASystem:
@@ -40,6 +53,8 @@ class SimpleQASystem:
         try:
             self.answers = [item['answer'] for item in data]
             self.answer_embeddings = [self.encoder.encode(answer, convert_to_tensor=True) for answer in self.answers]
+            for i, emb in enumerate(self.answer_embeddings):
+                print(f"Embedding {i}: {emb.cpu().numpy().tolist()}")
             print("Dataset prepared successfully")
         except Exception as e:
             print(f"Dataset preparation error: {e}")
@@ -78,10 +93,17 @@ class SimpleQASystem:
             )[0]
 
             best_idx = np.argmax(similarities)
+            best_score = similarities[best_idx]
             context = self.answers[best_idx]
 
-            # Generate the input text for the T5 model
-            input_text = f"Given the context, what is the answer to the question: {question} Context: {context}"
+            if best_score < 0.7:
+                print("Low similarity score, performing web search via DuckDuckGo...")
+                context = get_context_from_web(question)
+                input_text = f"Given the context from web search (RAG similarity: {best_score:.4f}), what is the answer to the question: {question} Context: {context}"
+            else:
+                # Generate the input text for the T5 model
+                input_text = f"Given the context (similarity: {best_score:.4f}), what is the answer to the question: {question} Context: {context}"
+
             print(input_text)
             # Tokenize input text
             input_ids = self.tokenizer(
@@ -109,7 +131,7 @@ class SimpleQASystem:
 
             # Clean up the answer
             cleaned_answer = self.clean_answer(answer)
-            return cleaned_answer
+            return f"{cleaned_answer}\n\n[Debug Info] {input_text}"
 
         except Exception as e:
             print(f"Error in get_answer: {e}")
@@ -137,8 +159,9 @@ iface = gr.Interface(
     fn=answer_question,
     inputs="text",
     outputs="text",
-    title="RAG Demo, Alex Uspenskiy 2025",
-    description="Ask a question and get an answer based on the provided dataset."
+    title="AI Multimodal Agent (RAG & WEB) Demo, Alex Uspenskiy 2025",
+    description="Ask a question and get an answer based on the provided dataset.",
+    allow_flagging="never"
 )
 
 # Launch the interface
