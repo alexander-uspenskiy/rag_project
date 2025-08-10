@@ -4,130 +4,57 @@ app_file: main.py
 sdk: gradio
 sdk_version: 5.21.0
 ---
-System Architecture Overview
 
-The implementation consists of a SimpleQASystem class that orchestrates two main components:
-A semantic search system using Sentence Transformers
-An answer generation system using T5
+# rag_project
 
-System DiagramCore Components
+This project demonstrates a simple Retrieval-Augmented Generation (RAG) question answering system built with [Gradio](https://gradio.app/).
 
-1. Initialization
-   
-def __init__(self):
-    self.model_name = 't5-small'
-    self.tokenizer = T5Tokenizer.from_pretrained(self.model_name)
-    self.model = T5ForConditionalGeneration.from_pretrained(self.model_name)
-    self.encoder = SentenceTransformer('paraphrase-MiniLM-L6-v2')
-The system initializes with two primary models:
-T5-small: A smaller version of the T5 model for generating answers
-paraphrase-MiniLM-L6-v2: A sentence transformer model for encoding text into meaningful vectors
+## System Architecture Overview
 
-2. Dataset Preparation
-   
-def prepare_dataset(self, data: List[Dict[str, str]]):
-    self.answers = [item['answer'] for item in data]
-    self.answer_embeddings = []
-    for answer in self.answers:
-        embedding = self.encoder.encode(answer, convert_to_tensor=True)
-        self.answer_embeddings.append(embedding)
-The dataset preparation phase:
-Extracts answers from the input data
-Creates embeddings for each answer using the sentence transformer
-Stores both answers and their embeddings for quick retrieval
+The implementation consists of a `SimpleQASystem` class that orchestrates three main components:
 
-How the System Works
+- **Semantic search** using [Sentence Transformers](https://www.sbert.net/) to compare the user's question against stored answers.
+- **Answer generation** using the `t5-small` model.
+- **Web search fallback** using [DuckDuckGo Search](https://pypi.org/project/duckduckgo-search/) when the stored answers do not adequately match the question.
 
-1. Question Processing
-   
-When a user submits a question, the system follows these steps:
-Embedding Generation: The question is converted into a vector representation using the same sentence transformer model used for the answers.
-Semantic Search: The system finds the most relevant stored answer by:
-Computing cosine similarity between the question embedding and all answer embeddings
-Selecting the answer with the highest similarity score
+## Dataset Preparation
 
-Context Formation: The selected answer becomes the context for T5 to generate a final response.
+The system stores only example answers. Each answer is embedded with the `paraphrase-MiniLM-L6-v2` encoder.
 
-2. Answer Generation
-   
-def get_answer(self, question: str) -> str:
-    # ... semantic search logic ...
-    input_text = f"Given the context, what is the answer to the question: {question} Context: {context}"
-    input_ids = self.tokenizer(input_text, max_length=512, truncation=True, 
-                             padding='max_length', return_tensors='pt').input_ids
-    outputs = self.model.generate(input_ids, max_length=50, num_beams=4, 
-                                early_stopping=True, no_repeat_ngram_size=2
-The answer generation process:
-Combines the question and context into a prompt for T5
-Tokenizes the input text with a maximum length of 512 tokens
-Generates an answer using beam search with these parameters:
-
-max_length=50: Limits answer length
-num_beams=4: Uses beam search with 4 beams
-early_stopping=True: Stops generation when all beams reach an end token
-no_repeat_ngram_size=2: Prevents repetition of bigrams
-
-3. Answer Cleaning
-
-def clean_answer(self, answer: str) -> str:
-    words = answer.split()
-    cleaned_words = []
-    for i, word in enumerate(words):
-        if i == 0 or word.lower() != words[i-1].lower():
-            cleaned_words.append(word)
-    cleaned = ' '.join(cleaned_words)
-    return cleaned[0].upper() + cleaned[1:] if cleaned else cleaned
-Removes duplicate consecutive words (case-insensitive)
-Capitalizes the first letter of the answer
-Removes extra whitespace
-
-Performance Considerations
-
-Memory Management:
-
-The system explicitly uses CPU to avoid memory issues
-Embeddings are converted to CPU tensors when needed
-Input length is limited to 512 tokens
-
-Error Handling:
-
-Comprehensive try-except blocks throughout the code
-Meaningful error messages for debugging
-Validation checks for uninitialized components
-
-Usage Example
-
-# Initialize system
-qa_system = SimpleQASystem()
-# Prepare sample data
+```python
 data = [
-    {"question": "What is the capital of France?", "answer": "The capital of France is Paris."},
-    {"question": "What is the largest planet?", "answer": "The largest planet is Jupiter."}
+    {"answer": "The capital of France is Paris."},
+    {"answer": "The largest planet in our solar system is Jupiter."},
+    {"answer": "The chemical symbol for water is H2O."},
+    {"answer": "EPAM established in 1993."},
+    {"answer": "EPAM CEO is Arkadiy Dobkin"}
 ]
-# Prepare dataset
 qa_system.prepare_dataset(data)
-# Get answer
-answer = qa_system.get_answer("What is the capital of France?")
+```
 
-Limitations and Potential Improvements
+## Question Answering Flow
 
-Scalability:
+1. The question is encoded and compared against the stored answer embeddings using cosine similarity.
+2. If the best similarity score is **0.7 or higher**, the corresponding stored answer becomes the context.
+3. If the score is **below 0.7**, the system performs a DuckDuckGo web search and uses the retrieved snippets as context.
+4. The selected context and question are passed to `t5-small` to generate the final answer.
+5. Duplicate consecutive words are removed and the answer is capitalized.
 
-The current implementation keeps all embeddings in memory
-Could be improved with vector databases for large-scale applications
+The final response also includes debug information that reports the similarity score and the context source.
 
-Answer Quality:
+## Running the App
 
-Relies heavily on the quality of the provided answer dataset
-Limited by the context window of T5-small
-Could benefit from answer validation or confidence scoring
+Launch the Gradio interface:
 
-Performance:
+```bash
+python main.py
+```
 
-Using CPU only might be slower for large-scale applications
-Could be optimized with batch processing
-Could implement caching for frequently asked questions
+This will start a small demo interface where you can type questions and receive answers.
 
-Conclusion
-This implementation provides a solid foundation for a question-answering system, combining the strengths of semantic search and transformer-based text generation. 
-While there's room for improvement, the current implementation offers a good balance between complexity and functionality, making it suitable for educational purposes and small to medium-scale applications.
+## Limitations and Potential Improvements
+
+- All embeddings are kept in memory; scaling to larger datasets would benefit from a vector database.
+- Answer quality depends on the provided example answers and the quality of web search results.
+- The current implementation runs on CPU only and may be slow for heavy workloads.
+
