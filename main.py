@@ -5,6 +5,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 from duckduckgo_search import DDGS
 import textwrap
+import re
 
 from transformers import T5Tokenizer, T5ForConditionalGeneration
 from typing import List, Dict
@@ -13,13 +14,45 @@ from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 
 
-def search_web(query, num_results=3):
-    with DDGS() as ddgs:
-        results = ddgs.text(query, max_results=num_results)
-        return [r['body'] for r in results]
+# Heuristic English detector
+def _is_english(text: str, threshold: float = 0.9) -> bool:
+    """Heuristic English detector: returns True if >= threshold of characters are ASCII letters, digits, spaces or common punctuation."""
+    if not text:
+        return False
+    allowed = re.compile(r"[A-Za-z0-9\s.,;:'\-!?()\[\]/\\\"%&$@]")
+    total = len(text)
+    good = sum(1 for ch in text if allowed.match(ch))
+    return (good / max(total, 1)) >= threshold
+
+
+def search_web(query, num_results=3, region="us-en"):
+    """Search DuckDuckGo and return English-only snippets.
+
+    Strategy:
+    1) Force region to an English locale (default us-en).
+    2) Filter non-English snippets via a lightweight heuristic.
+    3) If too few English snippets, retry once with an "in English" hint.
+    """
+    def _fetch(q):
+        with DDGS() as ddgs:
+            return list(ddgs.text(q, max_results=num_results, region=region))
+
+    results = _fetch(query)
+    english_snippets = [r.get('body', '') for r in results if _is_english(r.get('body', ''))]
+
+    # Retry with explicit language hint if needed
+    if len(english_snippets) < max(1, num_results // 2):
+        results = _fetch(query + " in English")
+        english_snippets = [r.get('body', '') for r in results if _is_english(r.get('body', ''))]
+
+    # Fallback: if still empty, return bodies regardless to avoid empty context
+    if not english_snippets:
+        english_snippets = [r.get('body', '') for r in results]
+
+    return english_snippets[:num_results]
 
 def get_context_from_web(query):
-    snippets = search_web(query)
+    snippets = search_web(query, num_results=3, region="us-en")
     context = " ".join(snippets)
     return textwrap.fill(context, width=120)
 
@@ -98,11 +131,11 @@ class SimpleQASystem:
 
             if best_score < 0.7:
                 print("Low similarity score, performing web search via DuckDuckGo...")
-                context = get_context_from_web(question)
+                context = get_context_from_web("" + question)
                 input_text = f"Given the context from web search (RAG similarity: {best_score:.4f}), what is the answer to the question: {question} Context: {context}"
             else:
                 # Generate the input text for the T5 model
-                input_text = f"Given the context (similarity: {best_score:.4f}), what is the answer to the question: {question} Context: {context}"
+                input_text = f"Given the RAG context (similarity: {best_score:.4f}), what is the answer to the question: {question} Context: {context}"
 
             print(input_text)
             # Tokenize input text
@@ -159,7 +192,7 @@ iface = gr.Interface(
     fn=answer_question,
     inputs="text",
     outputs="text",
-    title="AI Multimodal Agent (RAG & WEB) Demo, Alex Uspenskiy 2025",
+    title="AI Multimodal Agent  v1.2 (RAG & WEB) Demo, Alex Uspenskiy 2025",
     description="Ask a question and get an answer based on the provided dataset.",
     allow_flagging="never"
 )
